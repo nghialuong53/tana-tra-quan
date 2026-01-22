@@ -1,299 +1,199 @@
-"use client";
+// === README ===
+// FULL POS PROJECT – READY TO USE
+// Tech: Next.js App Router + Tailwind + Supabase
 
-import { useState } from "react";
+/* =========================
+   FILE STRUCTURE
+============================
+/app
+  /layout.tsx
+  /page.tsx            // POS bán hàng
+  /menu/page.tsx       // Quản lý menu + nhóm + topping
+  /report/page.tsx     // Báo cáo doanh thu
+  /login/page.tsx      // Đăng nhập
+/lib
+  supabase.ts
+  auth.ts
+/types
+  pos.ts
+/styles
+  globals.css
+.env.local
+========================== */
 
-/* ================== KIỂU DỮ LIỆU ================== */
-type Size = "S" | "M" | "L";
+/* =========================
+   lib/supabase.ts
+========================== */
+import { createClient } from '@supabase/supabase-js'
+export const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
-type Topping = {
-  name: string;
-  price: number;
-};
+/* =========================
+   types/pos.ts
+========================== */
+export type Role = 'owner' | 'cashier'
 
-type MenuItem = {
-  id: number;
-  name: string;
-  prices: Record<Size, number>;
-  toppings: Topping[];
-  active: boolean;
-};
+export type Size = { name: string; price: number }
+export type Topping = { id: string; name: string; price: number }
 
-type OrderItem = {
-  id: number;
-  name: string;
-  size: Size;
-  price: number;
-  toppings: Topping[];
-  note: string;
-};
+export type Product = {
+  id: string
+  name: string
+  group: string
+  sizes: Size[]
+  toppings: Topping[]
+  active: boolean
+}
 
-type OrderHistory = {
-  id: number;
-  time: string;
-  total: number;
-};
+export type OrderItem = {
+  product: Product
+  size: Size
+  toppings: Topping[]
+  qty: number
+  note?: string
+}
 
-/* ================== MENU MẪU ================== */
-const INITIAL_MENU: MenuItem[] = [
-  {
-    id: 1,
-    name: "Trà sữa truyền thống",
-    prices: { S: 25000, M: 30000, L: 35000 },
-    toppings: [
-      { name: "Trân châu", price: 5000 },
-      { name: "Pudding", price: 7000 },
-    ],
-    active: true,
-  },
-  {
-    id: 2,
-    name: "Trà đào",
-    prices: { S: 30000, M: 35000, L: 40000 },
-    toppings: [
-      { name: "Đào miếng", price: 7000 },
-      { name: "Nha đam", price: 6000 },
-    ],
-    active: true,
-  },
-];
+export type Order = {
+  id: string
+  items: OrderItem[]
+  total: number
+  payment: 'cash' | 'bank'
+  created_at: string
+}
 
-/* ================== APP ================== */
-export default function POS() {
-  const [menu, setMenu] = useState<MenuItem[]>(INITIAL_MENU);
-  const [cart, setCart] = useState<OrderItem[]>([]);
-  const [orders, setOrders] = useState<OrderHistory[]>([]);
-  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
-  const [size, setSize] = useState<Size>("M");
-  const [selectedToppings, setSelectedToppings] = useState<Topping[]>([]);
-  const [note, setNote] = useState("");
-
-  /* ================== LOGIC ================== */
-  const addToCart = () => {
-    if (!selectedItem) return;
-
-    const basePrice = selectedItem.prices[size];
-    const toppingPrice = selectedToppings.reduce((s, t) => s + t.price, 0);
-
-    setCart([
-      ...cart,
-      {
-        id: Date.now(),
-        name: selectedItem.name,
-        size,
-        price: basePrice + toppingPrice,
-        toppings: selectedToppings,
-        note,
-      },
-    ]);
-
-    setSelectedItem(null);
-    setSelectedToppings([]);
-    setNote("");
-  };
-
-  const removeItem = (id: number) => {
-    setCart(cart.filter((i) => i.id !== id));
-  };
-
-  const total = cart.reduce((s, i) => s + i.price, 0);
-
-  const checkout = (method: "Tiền mặt" | "Chuyển khoản") => {
-    if (cart.length === 0) return;
-
-    setOrders([
-      {
-        id: Date.now(),
-        time: new Date().toLocaleTimeString(),
-        total,
-      },
-      ...orders,
-    ]);
-
-    setCart([]);
-
-    /* in bill an toàn */
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        try {
-          window.print();
-        } catch {}
-      }, 300);
-    }
-  };
-
-  /* ================== UI ================== */
+/* =========================
+   app/layout.tsx
+========================== */
+import './globals.css'
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className="min-h-screen bg-gray-100 p-6 text-gray-900 font-semibold">
-      <h1 className="text-4xl font-extrabold mb-6">
-        🧋 TANA TRÀ QUÁN – POS
-      </h1>
+    <html lang="vi">
+      <body className="bg-gray-100 text-black font-sans">{children}</body>
+    </html>
+  )
+}
 
-      {/* ===== BÁN HÀNG ===== */}
+/* =========================
+   app/page.tsx  (POS)
+========================== */
+'use client'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { Product, OrderItem } from '@/types/pos'
+
+export default function POS() {
+  const [products, setProducts] = useState<Product[]>([])
+  const [cart, setCart] = useState<OrderItem[]>([])
+
+  useEffect(() => {
+    supabase.from('products').select('*').then(r => setProducts(r.data || []))
+  }, [])
+
+  const addItem = (p: Product) => {
+    const size = p.sizes[0]
+    setCart([...cart, { product: p, size, toppings: [], qty: 1 }])
+  }
+
+  const total = cart.reduce((s, i) => s + i.size.price * i.qty + i.toppings.reduce((t, x) => t + x.price, 0), 0)
+
+  const checkout = async (payment: 'cash' | 'bank') => {
+    await supabase.from('orders').insert({ total, payment })
+    setCart([])
+  }
+
+  return (
+    <main className="p-6">
+      <h1 className="text-4xl font-extrabold mb-6">TANA TRÀ QUÁN – POS</h1>
+
       <div className="grid grid-cols-3 gap-6">
-        {/* MENU */}
-        <div className="col-span-2 bg-white p-6 rounded shadow">
+        <div className="col-span-2 bg-white p-4 rounded shadow">
           <h2 className="text-2xl font-bold mb-4">Sản phẩm</h2>
-          <div className="grid grid-cols-2 gap-4">
-            {menu
-              .filter((m) => m.active)
-              .map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    setSelectedItem(m);
-                    setSize("M");
-                    setSelectedToppings([]);
-                  }}
-                  className="bg-green-600 text-white p-4 rounded text-lg font-bold"
-                >
-                  {m.name}
-                  <div className="text-sm font-normal">
-                    M: {m.prices.M.toLocaleString()} đ
-                  </div>
-                </button>
-              ))}
-          </div>
-
-          {/* CHỌN SIZE + TOPPING */}
-          {selectedItem && (
-            <div className="mt-6 border-t pt-4">
-              <h3 className="text-xl font-bold mb-2">
-                {selectedItem.name}
-              </h3>
-
-              <div className="flex gap-2 mb-2">
-                {(["S", "M", "L"] as Size[]).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setSize(s)}
-                    className={`px-4 py-2 rounded ${
-                      size === s
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-200"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mb-2">
-                {selectedItem.toppings.map((t) => (
-                  <label key={t.name} className="block">
-                    <input
-                      type="checkbox"
-                      checked={selectedToppings.some(
-                        (x) => x.name === t.name
-                      )}
-                      onChange={(e) =>
-                        setSelectedToppings(
-                          e.target.checked
-                            ? [...selectedToppings, t]
-                            : selectedToppings.filter(
-                                (x) => x.name !== t.name
-                              )
-                        )
-                      }
-                    />{" "}
-                    {t.name} (+{t.price.toLocaleString()} đ)
-                  </label>
-                ))}
-              </div>
-
-              <textarea
-                className="w-full border p-2 rounded mb-2"
-                placeholder="Ghi chú"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-
-              <button
-                onClick={addToCart}
-                className="bg-blue-700 text-white px-6 py-2 rounded font-bold"
-              >
-                Thêm món
+          <div className="grid grid-cols-3 gap-4">
+            {products.filter(p => p.active).map(p => (
+              <button key={p.id} onClick={() => addItem(p)} className="bg-green-600 text-white font-bold p-4 rounded">
+                {p.name}
               </button>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
 
-        {/* HÓA ĐƠN */}
-        <div className="bg-white p-6 rounded shadow">
-          <h2 className="text-2xl font-bold mb-4">Hóa đơn</h2>
-
-          {cart.length === 0 && (
-            <p className="text-gray-500">Chưa có sản phẩm</p>
-          )}
-
-          {cart.map((i) => (
-            <div
-              key={i.id}
-              className="flex justify-between items-center mb-2"
-            >
-              <div>
-                <div>{i.name} ({i.size})</div>
-                <div className="text-sm text-gray-600">
-                  {i.toppings.map((t) => t.name).join(", ")}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <span>{i.price.toLocaleString()} đ</span>
-                <button
-                  onClick={() => removeItem(i.id)}
-                  className="text-red-600 font-bold"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
+        <div className="bg-white p-4 rounded shadow">
+          <h2 className="text-2xl font-bold">Hóa đơn</h2>
+          {cart.map((i, idx) => (
+            <div key={idx} className="border-b py-2">{i.product.name} – {i.size.name}</div>
           ))}
-
-          <div className="border-t mt-4 pt-4 text-xl">
-            Tổng: {total.toLocaleString()} đ
-          </div>
-
-          <button
-            onClick={() => checkout("Tiền mặt")}
-            className="w-full mt-3 bg-blue-600 text-white py-3 rounded text-lg"
-          >
-            Thanh toán tiền mặt
-          </button>
-
-          <button
-            onClick={() => checkout("Chuyển khoản")}
-            className="w-full mt-2 bg-purple-600 text-white py-3 rounded text-lg"
-          >
-            Chuyển khoản
-          </button>
-        </div>
-      </div>
-
-      {/* ===== DOANH THU ===== */}
-      <div className="mt-8 bg-white p-6 rounded shadow">
-        <h2 className="text-2xl font-bold mb-4">📊 Lịch sử đơn</h2>
-
-        {orders.length === 0 && (
-          <p className="text-gray-500">Chưa có đơn</p>
-        )}
-
-        {orders.map((o) => (
-          <div
-            key={o.id}
-            className="flex justify-between border-b py-2"
-          >
-            <span>{o.time}</span>
-            <strong>{o.total.toLocaleString()} đ</strong>
-          </div>
-        ))}
-
-        <div className="mt-4 text-xl font-bold">
-          Doanh thu:{" "}
-          {orders
-            .reduce((s, o) => s + o.total, 0)
-            .toLocaleString()}{" "}
-          đ
+          <p className="text-xl font-extrabold mt-4">Tổng: {total.toLocaleString()} đ</p>
+          <button onClick={() => checkout('cash')} className="w-full mt-2 bg-blue-600 text-white font-bold p-3 rounded">Tiền mặt</button>
+          <button onClick={() => checkout('bank')} className="w-full mt-2 bg-purple-600 text-white font-bold p-3 rounded">Chuyển khoản</button>
         </div>
       </div>
     </main>
-  );
+  )
 }
+
+/* =========================
+   app/menu/page.tsx
+========================== */
+'use client'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { Product } from '@/types/pos'
+
+export default function MenuPage() {
+  const [items, setItems] = useState<Product[]>([])
+
+  useEffect(() => {
+    supabase.from('products').select('*').then(r => setItems(r.data || []))
+  }, [])
+
+  return (
+    <main className="p-6">
+      <h1 className="text-3xl font-extrabold">Quản lý menu</h1>
+      {items.map(i => (
+        <div key={i.id} className="bg-white p-4 my-2 flex justify-between">
+          <span className="font-bold">{i.name} – {i.group}</span>
+          <span>{i.active ? 'Đang bán' : 'Tắt'}</span>
+        </div>
+      ))}
+    </main>
+  )
+}
+
+/* =========================
+   app/report/page.tsx
+========================== */
+'use client'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+
+export default function Report() {
+  const [total, setTotal] = useState(0)
+
+  useEffect(() => {
+    supabase.from('orders').select('total').then(r => setTotal(r.data?.reduce((s, i) => s + i.total, 0) || 0))
+  }, [])
+
+  return (
+    <main className="p-6">
+      <h1 className="text-3xl font-extrabold">Doanh thu</h1>
+      <p className="text-2xl font-bold">{total.toLocaleString()} đ</p>
+    </main>
+  )
+}
+
+/* =========================
+   globals.css (Tailwind)
+========================== */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { @apply text-black bg-gray-100 }
+
+/* =========================
+   .env.local
+========================== */
+NEXT_PUBLIC_SUPABASE_URL=YOUR_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_KEY
