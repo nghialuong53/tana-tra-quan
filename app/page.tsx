@@ -1,178 +1,289 @@
-'use client'
-import { useState } from 'react'
+"use client";
+
+import { useEffect, useState } from "react";
+
+/* ================== CONFIG ================== */
+const SHOP_NAME = "TANA TRÀ QUÁN";
+const LOGO = "🧋";
+
+/* ================== TYPES ================== */
+type Role = "admin" | "cashier";
+
+type User = {
+  username: string;
+  role: Role;
+};
+
+type Size = "S" | "M" | "L";
+
+type Topping = {
+  id: string;
+  name: string;
+  price: number;
+};
 
 type Product = {
-  id: number
-  name: string
-  price: number
-}
+  id: string;
+  name: string;
+  active: boolean;
+  prices: Record<Size, number>;
+  toppings: Topping[];
+};
 
-type CartItem = Product & { qty: number }
+type OrderItem = {
+  id: string;
+  productId: string;
+  name: string;
+  size: Size;
+  toppings: Topping[];
+  note: string;
+  qty: number;
+  price: number;
+};
 
 type Order = {
-  id: number
-  time: string
-  total: number
-}
+  id: string;
+  time: string;
+  items: OrderItem[];
+  total: number;
+  payment: "cash" | "transfer";
+  paid: boolean;
+  canceled?: boolean;
+};
 
-const PRODUCTS: Product[] = [
-  { id: 1, name: 'Trà sữa truyền thống', price: 25000 },
-  { id: 2, name: 'Trà sữa thái xanh', price: 27000 },
-  { id: 3, name: 'Trà đào', price: 30000 },
-]
+/* ================== STORAGE ================== */
+const store = {
+  get<T>(k: string, d: T): T {
+    if (typeof window === "undefined") return d;
+    return JSON.parse(localStorage.getItem(k) || "null") ?? d;
+  },
+  set(k: string, v: any) {
+    localStorage.setItem(k, JSON.stringify(v));
+  },
+};
 
-export default function Home() {
-  const [cart, setCart] = useState<CartItem[]>([])
-  const [orders, setOrders] = useState<Order[]>([])
+/* ================== MAIN ================== */
+export default function POS() {
+  const [user, setUser] = useState<User | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [cart, setCart] = useState<OrderItem[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [view, setView] = useState<"pos" | "admin" | "report">("pos");
 
-  // ➕ thêm món
-  const addItem = (p: Product) => {
-    setCart((prev) => {
-      const found = prev.find((i) => i.id === p.id)
-      if (found) {
-        return prev.map((i) =>
-          i.id === p.id ? { ...i, qty: i.qty + 1 } : i
-        )
-      }
-      return [...prev, { ...p, qty: 1 }]
-    })
-  }
+  /* ========== INIT ========== */
+  useEffect(() => {
+    setProducts(
+      store.get<Product[]>("products", [
+        {
+          id: "ts1",
+          name: "Trà sữa truyền thống",
+          active: true,
+          prices: { S: 25000, M: 30000, L: 35000 },
+          toppings: [
+            { id: "tp1", name: "Trân châu", price: 5000 },
+            { id: "tp2", name: "Pudding", price: 7000 },
+          ],
+        },
+        {
+          id: "ts2",
+          name: "Trà đào",
+          active: true,
+          prices: { S: 30000, M: 35000, L: 40000 },
+          toppings: [],
+        },
+      ])
+    );
+    setOrders(store.get<Order[]>("orders", []));
+  }, []);
 
-  // ➖ / ➕ số lượng
-  const changeQty = (id: number, delta: number) => {
-    setCart((prev) =>
-      prev
-        .map((i) =>
-          i.id === id ? { ...i, qty: i.qty + delta } : i
-        )
-        .filter((i) => i.qty > 0)
-    )
-  }
+  useEffect(() => {
+    store.set("products", products);
+  }, [products]);
 
-  // 💰 tổng tiền
-  const total = cart.reduce((s, i) => s + i.price * i.qty, 0)
+  useEffect(() => {
+    store.set("orders", orders);
+  }, [orders]);
 
-  // 🧾 thanh toán
-  const checkout = () => {
-    if (cart.length === 0) return
-    const newOrder: Order = {
-      id: Date.now(),
-      time: new Date().toLocaleTimeString(),
-      total,
-    }
-    setOrders([newOrder, ...orders])
-    setCart([])
-  }
-
-  return (
-    <main className="min-h-screen bg-gray-100 p-6">
-      <h1 className="text-3xl font-bold mb-6">
-        🧋 TANA TRÀ QUÁN – MÀN HÌNH BÁN HÀNG
-      </h1>
-
-      <div className="grid grid-cols-3 gap-6">
-        {/* SẢN PHẨM */}
-        <div className="col-span-2 bg-white p-4 rounded shadow">
-          <h2 className="text-xl font-semibold mb-4">Sản phẩm</h2>
-
-          <div className="grid grid-cols-3 gap-4">
-            {PRODUCTS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => addItem(p)}
-                className="bg-green-500 text-white p-4 rounded text-center hover:bg-green-600"
-              >
-                <div className="font-semibold">{p.name}</div>
-                <div className="text-sm">
-                  {p.price.toLocaleString()} đ
-                </div>
-              </button>
-            ))}
-          </div>
+  /* ========== LOGIN ========== */
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="bg-white p-6 rounded shadow w-80">
+          <h2 className="text-xl font-bold mb-4 text-center">{SHOP_NAME}</h2>
+          <button
+            className="w-full bg-blue-600 text-white p-2 rounded mb-2"
+            onClick={() => setUser({ username: "admin", role: "admin" })}
+          >
+            Đăng nhập CHỦ QUÁN
+          </button>
+          <button
+            className="w-full bg-green-600 text-white p-2 rounded"
+            onClick={() => setUser({ username: "cashier", role: "cashier" })}
+          >
+            Đăng nhập THU NGÂN
+          </button>
         </div>
+      </div>
+    );
+  }
 
-        {/* HÓA ĐƠN */}
-        <div className="bg-white p-4 rounded shadow">
-          <h2 className="text-xl font-semibold mb-4">Hóa đơn</h2>
+  /* ========== ORDER LOGIC ========== */
+  const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
 
-          {cart.length === 0 && (
-            <p className="text-gray-400">Chưa có sản phẩm</p>
+  const checkout = (payment: "cash" | "transfer") => {
+    if (cart.length === 0) return;
+    const order: Order = {
+      id: Date.now().toString(),
+      time: new Date().toLocaleString(),
+      items: cart,
+      total,
+      payment,
+      paid: true,
+    };
+    setOrders([order, ...orders]);
+    setCart([]);
+    setTimeout(() => window.print(), 300);
+  };
+
+  const cancelOrder = (id: string) => {
+    if (user.role !== "admin") return;
+    setOrders(
+      orders.map((o) => (o.id === id ? { ...o, canceled: true } : o))
+    );
+  };
+
+  /* ========== UI ========== */
+  return (
+    <div className="p-4 bg-gray-100 min-h-screen">
+      <header className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-extrabold">
+          {LOGO} {SHOP_NAME}
+        </h1>
+        <div className="space-x-2">
+          <button onClick={() => setView("pos")}>Bán hàng</button>
+          {user.role === "admin" && (
+            <>
+              <button onClick={() => setView("admin")}>Menu</button>
+              <button onClick={() => setView("report")}>Báo cáo</button>
+            </>
           )}
+        </div>
+      </header>
 
-          {cart.map((i) => (
-            <div
-              key={i.id}
-              className="flex justify-between items-center mb-2"
-            >
-              <div>
-                <div className="font-medium">{i.name}</div>
-                <div className="text-sm text-gray-500">
-                  {i.price.toLocaleString()} đ
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => changeQty(i.id, -1)}
-                  className="px-2 bg-gray-200 rounded"
-                >
-                  −
-                </button>
-                <span>{i.qty}</span>
-                <button
-                  onClick={() => changeQty(i.id, 1)}
-                  className="px-2 bg-gray-200 rounded"
-                >
-                  +
-                </button>
-              </div>
+      {/* ================= POS ================= */}
+      {view === "pos" && (
+        <div className="grid grid-cols-3 gap-4">
+          <div className="col-span-2 bg-white p-4 rounded shadow">
+            <h2 className="font-bold mb-2">Sản phẩm</h2>
+            <div className="grid grid-cols-3 gap-3">
+              {products
+                .filter((p) => p.active)
+                .map((p) => (
+                  <button
+                    key={p.id}
+                    className="bg-green-600 text-white p-4 rounded font-bold"
+                    onClick={() =>
+                      setCart([
+                        ...cart,
+                        {
+                          id: Date.now().toString(),
+                          productId: p.id,
+                          name: p.name,
+                          size: "M",
+                          toppings: [],
+                          note: "",
+                          qty: 1,
+                          price: p.prices.M,
+                        },
+                      ])
+                    }
+                  >
+                    {p.name}
+                    <div>{p.prices.M.toLocaleString()} đ</div>
+                  </button>
+                ))}
             </div>
-          ))}
+          </div>
 
-          <div className="border-t mt-4 pt-4">
-            <div className="text-lg font-bold">
-              Tổng tiền: {total.toLocaleString()} đ
+          <div className="bg-white p-4 rounded shadow">
+            <h2 className="font-bold mb-2">Hóa đơn</h2>
+            {cart.map((i) => (
+              <div key={i.id} className="flex justify-between text-sm">
+                <span>
+                  {i.name} x{i.qty}
+                </span>
+                <span>{(i.price * i.qty).toLocaleString()} đ</span>
+              </div>
+            ))}
+            <hr className="my-2" />
+            <div className="font-extrabold">
+              Tổng: {total.toLocaleString()} đ
             </div>
             <button
-              onClick={checkout}
-              className="mt-4 w-full bg-blue-600 text-white p-3 rounded text-lg hover:bg-blue-700"
+              className="w-full bg-blue-600 text-white p-2 mt-2 rounded"
+              onClick={() => checkout("cash")}
             >
-              Thanh toán
+              Thanh toán tiền mặt
+            </button>
+            <button
+              className="w-full bg-purple-600 text-white p-2 mt-2 rounded"
+              onClick={() => checkout("transfer")}
+            >
+              Chuyển khoản
             </button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* DOANH THU */}
-      <div className="mt-10 bg-white p-4 rounded shadow">
-        <h2 className="text-xl font-semibold mb-4">
-          📊 Lịch sử đơn hàng
-        </h2>
+      {/* ================= ADMIN MENU ================= */}
+      {view === "admin" && (
+        <div className="bg-white p-4 rounded shadow">
+          <h2 className="font-bold mb-2">Quản lý menu</h2>
+          {products.map((p, idx) => (
+            <div key={p.id} className="flex justify-between mb-2">
+              <span>{p.name}</span>
+              <button
+                onClick={() =>
+                  setProducts(
+                    products.map((x, i) =>
+                      i === idx ? { ...x, active: !x.active } : x
+                    )
+                  )
+                }
+                className="text-sm text-blue-600"
+              >
+                {p.active ? "Tắt" : "Bật"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
-        {orders.length === 0 && (
-          <p className="text-gray-400">Chưa có đơn nào</p>
-        )}
-
-        {orders.map((o) => (
-          <div
-            key={o.id}
-            className="flex justify-between border-b py-2 text-sm"
-          >
-            <span>{o.time}</span>
-            <strong>{o.total.toLocaleString()} đ</strong>
-          </div>
-        ))}
-
-        {orders.length > 0 && (
-          <div className="text-right font-bold mt-4">
-            Doanh thu:{' '}
-            {orders
-              .reduce((s, o) => s + o.total, 0)
-              .toLocaleString()}{' '}
-            đ
-          </div>
-        )}
-      </div>
-    </main>
-  )
+      {/* ================= REPORT ================= */}
+      {view === "report" && (
+        <div className="bg-white p-4 rounded shadow">
+          <h2 className="font-bold mb-2">Lịch sử đơn</h2>
+          {orders.map((o) => (
+            <div key={o.id} className="border-b py-1 text-sm">
+              <div>
+                #{o.id} – {o.time}
+              </div>
+              <div>
+                {o.total.toLocaleString()} đ – {o.payment}
+                {o.canceled && " (ĐÃ HOÀN)"}
+              </div>
+              {user.role === "admin" && !o.canceled && (
+                <button
+                  className="text-red-600 text-xs"
+                  onClick={() => cancelOrder(o.id)}
+                >
+                  Hoàn đơn
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
