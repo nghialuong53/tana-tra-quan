@@ -1,264 +1,299 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-/* ================= CONFIG ================= */
-const SHOP_NAME = "TANA TRÀ QUÁN";
-const LOGO = "🧋";
+/* ================== KIỂU DỮ LIỆU ================== */
+type Size = "S" | "M" | "L";
 
-/* ================= TYPES ================= */
-type Product = {
-  id: string;
+type Topping = {
   name: string;
   price: number;
+};
+
+type MenuItem = {
+  id: number;
+  name: string;
+  prices: Record<Size, number>;
+  toppings: Topping[];
   active: boolean;
 };
 
-type CartItem = {
-  id: string;
-  productId: string;
+type OrderItem = {
+  id: number;
   name: string;
+  size: Size;
   price: number;
-  qty: number;
+  toppings: Topping[];
+  note: string;
 };
 
-type Order = {
-  id: string;
+type OrderHistory = {
+  id: number;
   time: string;
-  items: CartItem[];
   total: number;
-  payment: "cash" | "transfer";
 };
 
-/* ================= STORAGE ================= */
-const store = {
-  get<T>(k: string, d: T): T {
-    if (typeof window === "undefined") return d;
-    return JSON.parse(localStorage.getItem(k) || "null") ?? d;
+/* ================== MENU MẪU ================== */
+const INITIAL_MENU: MenuItem[] = [
+  {
+    id: 1,
+    name: "Trà sữa truyền thống",
+    prices: { S: 25000, M: 30000, L: 35000 },
+    toppings: [
+      { name: "Trân châu", price: 5000 },
+      { name: "Pudding", price: 7000 },
+    ],
+    active: true,
   },
-  set(k: string, v: any) {
-    localStorage.setItem(k, JSON.stringify(v));
+  {
+    id: 2,
+    name: "Trà đào",
+    prices: { S: 30000, M: 35000, L: 40000 },
+    toppings: [
+      { name: "Đào miếng", price: 7000 },
+      { name: "Nha đam", price: 6000 },
+    ],
+    active: true,
   },
-};
+];
 
-/* ================= MAIN ================= */
+/* ================== APP ================== */
 export default function POS() {
-  const [view, setView] = useState<"pos" | "menu" | "report">("pos");
-  const [products, setProducts] = useState<Product[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [menu, setMenu] = useState<MenuItem[]>(INITIAL_MENU);
+  const [cart, setCart] = useState<OrderItem[]>([]);
+  const [orders, setOrders] = useState<OrderHistory[]>([]);
+  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
+  const [size, setSize] = useState<Size>("M");
+  const [selectedToppings, setSelectedToppings] = useState<Topping[]>([]);
+  const [note, setNote] = useState("");
 
-  /* ===== INIT ===== */
-  useEffect(() => {
-    setProducts(
-      store.get("products", [
-        { id: "1", name: "Trà sữa truyền thống", price: 30000, active: true },
-        { id: "2", name: "Trà đào", price: 35000, active: true },
-      ])
-    );
-    setOrders(store.get("orders", []));
-  }, []);
+  /* ================== LOGIC ================== */
+  const addToCart = () => {
+    if (!selectedItem) return;
 
-  useEffect(() => store.set("products", products), [products]);
-  useEffect(() => store.set("orders", orders), [orders]);
+    const basePrice = selectedItem.prices[size];
+    const toppingPrice = selectedToppings.reduce((s, t) => s + t.price, 0);
 
-  /* ===== POS LOGIC ===== */
-  const addToCart = (p: Product) => {
-    const found = cart.find((i) => i.productId === p.id);
-    if (found) {
-      setCart(
-        cart.map((i) =>
-          i.productId === p.id ? { ...i, qty: i.qty + 1 } : i
-        )
-      );
-    } else {
-      setCart([
-        ...cart,
-        {
-          id: Date.now().toString(),
-          productId: p.id,
-          name: p.name,
-          price: p.price,
-          qty: 1,
-        },
-      ]);
+    setCart([
+      ...cart,
+      {
+        id: Date.now(),
+        name: selectedItem.name,
+        size,
+        price: basePrice + toppingPrice,
+        toppings: selectedToppings,
+        note,
+      },
+    ]);
+
+    setSelectedItem(null);
+    setSelectedToppings([]);
+    setNote("");
+  };
+
+  const removeItem = (id: number) => {
+    setCart(cart.filter((i) => i.id !== id));
+  };
+
+  const total = cart.reduce((s, i) => s + i.price, 0);
+
+  const checkout = (method: "Tiền mặt" | "Chuyển khoản") => {
+    if (cart.length === 0) return;
+
+    setOrders([
+      {
+        id: Date.now(),
+        time: new Date().toLocaleTimeString(),
+        total,
+      },
+      ...orders,
+    ]);
+
+    setCart([]);
+
+    /* in bill an toàn */
+    if (typeof window !== "undefined") {
+      setTimeout(() => {
+        try {
+          window.print();
+        } catch {}
+      }, 300);
     }
   };
 
-  const changeQty = (id: string, d: number) => {
-    setCart(
-      cart
-        .map((i) =>
-          i.id === id ? { ...i, qty: i.qty + d } : i
-        )
-        .filter((i) => i.qty > 0)
-    );
-  };
-
-  const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
-
-  const checkout = (payment: "cash" | "transfer") => {
-    if (cart.length === 0) return;
-    const order: Order = {
-      id: Date.now().toString(),
-      time: new Date().toLocaleString(),
-      items: cart,
-      total,
-      payment,
-    };
-    setOrders([order, ...orders]);
-    setCart([]);
-    setTimeout(() => window.print(), 300);
-  };
-
-  /* ===== MENU ADMIN ===== */
-  const addProduct = () => {
-    const name = prompt("Tên món?");
-    const price = Number(prompt("Giá tiền?"));
-    if (!name || !price) return;
-    setProducts([
-      ...products,
-      { id: Date.now().toString(), name, price, active: true },
-    ]);
-  };
-
-  const updateProduct = (id: string) => {
-    const p = products.find((x) => x.id === id);
-    if (!p) return;
-    const name = prompt("Tên món", p.name) || p.name;
-    const price = Number(prompt("Giá", p.price.toString())) || p.price;
-    setProducts(
-      products.map((x) =>
-        x.id === id ? { ...x, name, price } : x
-      )
-    );
-  };
-
-  /* ================= UI ================= */
+  /* ================== UI ================== */
   return (
-    <div className="min-h-screen bg-gray-200 p-4 text-black">
-      {/* HEADER */}
-      <header className="flex justify-between items-center mb-4">
-        <h1 className="text-3xl font-extrabold">
-          {LOGO} {SHOP_NAME}
-        </h1>
-        <div className="space-x-3 font-bold">
-          <button onClick={() => setView("pos")}>Bán hàng</button>
-          <button onClick={() => setView("menu")}>Menu</button>
-          <button onClick={() => setView("report")}>Báo cáo</button>
-        </div>
-      </header>
+    <main className="min-h-screen bg-gray-100 p-6 text-gray-900 font-semibold">
+      <h1 className="text-4xl font-extrabold mb-6">
+        🧋 TANA TRÀ QUÁN – POS
+      </h1>
 
-      {/* ================= POS ================= */}
-      {view === "pos" && (
-        <div className="grid grid-cols-3 gap-4">
-          <div className="col-span-2 bg-white p-4 rounded shadow">
-            <h2 className="text-xl font-extrabold mb-3">SẢN PHẨM</h2>
-            <div className="grid grid-cols-3 gap-3">
-              {products.filter(p => p.active).map(p => (
+      {/* ===== BÁN HÀNG ===== */}
+      <div className="grid grid-cols-3 gap-6">
+        {/* MENU */}
+        <div className="col-span-2 bg-white p-6 rounded shadow">
+          <h2 className="text-2xl font-bold mb-4">Sản phẩm</h2>
+          <div className="grid grid-cols-2 gap-4">
+            {menu
+              .filter((m) => m.active)
+              .map((m) => (
                 <button
-                  key={p.id}
-                  className="bg-green-600 text-white p-4 rounded text-lg font-extrabold"
-                  onClick={() => addToCart(p)}
+                  key={m.id}
+                  onClick={() => {
+                    setSelectedItem(m);
+                    setSize("M");
+                    setSelectedToppings([]);
+                  }}
+                  className="bg-green-600 text-white p-4 rounded text-lg font-bold"
                 >
-                  {p.name}
-                  <div>{p.price.toLocaleString()} đ</div>
+                  {m.name}
+                  <div className="text-sm font-normal">
+                    M: {m.prices.M.toLocaleString()} đ
+                  </div>
                 </button>
               ))}
-            </div>
           </div>
 
-          <div className="bg-white p-4 rounded shadow">
-            <h2 className="text-xl font-extrabold mb-3">HÓA ĐƠN</h2>
+          {/* CHỌN SIZE + TOPPING */}
+          {selectedItem && (
+            <div className="mt-6 border-t pt-4">
+              <h3 className="text-xl font-bold mb-2">
+                {selectedItem.name}
+              </h3>
 
-            {cart.map(i => (
-              <div key={i.id} className="flex justify-between items-center mb-2">
-                <div>
-                  <div className="font-bold">{i.name}</div>
-                  <div className="text-sm">{i.price.toLocaleString()} đ</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => changeQty(i.id, -1)}>-</button>
-                  <strong>{i.qty}</strong>
-                  <button onClick={() => changeQty(i.id, 1)}>+</button>
-                </div>
+              <div className="flex gap-2 mb-2">
+                {(["S", "M", "L"] as Size[]).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSize(s)}
+                    className={`px-4 py-2 rounded ${
+                      size === s
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-200"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
               </div>
-            ))}
 
-            <hr className="my-2" />
-            <div className="text-xl font-extrabold">
-              TỔNG: {total.toLocaleString()} đ
+              <div className="mb-2">
+                {selectedItem.toppings.map((t) => (
+                  <label key={t.name} className="block">
+                    <input
+                      type="checkbox"
+                      checked={selectedToppings.some(
+                        (x) => x.name === t.name
+                      )}
+                      onChange={(e) =>
+                        setSelectedToppings(
+                          e.target.checked
+                            ? [...selectedToppings, t]
+                            : selectedToppings.filter(
+                                (x) => x.name !== t.name
+                              )
+                        )
+                      }
+                    />{" "}
+                    {t.name} (+{t.price.toLocaleString()} đ)
+                  </label>
+                ))}
+              </div>
+
+              <textarea
+                className="w-full border p-2 rounded mb-2"
+                placeholder="Ghi chú"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+
+              <button
+                onClick={addToCart}
+                className="bg-blue-700 text-white px-6 py-2 rounded font-bold"
+              >
+                Thêm món
+              </button>
             </div>
-
-            <button
-              className="w-full bg-blue-700 text-white p-3 mt-2 rounded font-bold"
-              onClick={() => checkout("cash")}
-            >
-              THANH TOÁN TIỀN MẶT
-            </button>
-            <button
-              className="w-full bg-purple-700 text-white p-3 mt-2 rounded font-bold"
-              onClick={() => checkout("transfer")}
-            >
-              CHUYỂN KHOẢN
-            </button>
-          </div>
+          )}
         </div>
-      )}
 
-      {/* ================= MENU ================= */}
-      {view === "menu" && (
-        <div className="bg-white p-4 rounded shadow">
-          <h2 className="text-xl font-extrabold mb-3">QUẢN LÝ MENU</h2>
-          <button
-            onClick={addProduct}
-            className="bg-green-700 text-white px-4 py-2 rounded mb-3 font-bold"
-          >
-            + Thêm món
-          </button>
+        {/* HÓA ĐƠN */}
+        <div className="bg-white p-6 rounded shadow">
+          <h2 className="text-2xl font-bold mb-4">Hóa đơn</h2>
 
-          {products.map(p => (
+          {cart.length === 0 && (
+            <p className="text-gray-500">Chưa có sản phẩm</p>
+          )}
+
+          {cart.map((i) => (
             <div
-              key={p.id}
-              className="flex justify-between items-center border-b py-2"
+              key={i.id}
+              className="flex justify-between items-center mb-2"
             >
               <div>
-                <strong>{p.name}</strong> – {p.price.toLocaleString()} đ
-                {!p.active && <span className="text-red-600"> (Tắt)</span>}
+                <div>{i.name} ({i.size})</div>
+                <div className="text-sm text-gray-600">
+                  {i.toppings.map((t) => t.name).join(", ")}
+                </div>
               </div>
-              <div className="space-x-2">
-                <button onClick={() => updateProduct(p.id)}>Sửa</button>
+              <div className="flex gap-2">
+                <span>{i.price.toLocaleString()} đ</span>
                 <button
-                  onClick={() =>
-                    setProducts(products.map(x =>
-                      x.id === p.id ? { ...x, active: !x.active } : x
-                    ))
-                  }
+                  onClick={() => removeItem(i.id)}
+                  className="text-red-600 font-bold"
                 >
-                  {p.active ? "Tắt" : "Bật"}
+                  ✕
                 </button>
               </div>
             </div>
           ))}
-        </div>
-      )}
 
-      {/* ================= REPORT ================= */}
-      {view === "report" && (
-        <div className="bg-white p-4 rounded shadow">
-          <h2 className="text-xl font-extrabold mb-3">LỊCH SỬ ĐƠN</h2>
-          {orders.map(o => (
-            <div key={o.id} className="border-b py-2">
-              <div className="font-bold">
-                #{o.id} – {o.time}
-              </div>
-              <div>
-                {o.total.toLocaleString()} đ – {o.payment}
-              </div>
-            </div>
-          ))}
+          <div className="border-t mt-4 pt-4 text-xl">
+            Tổng: {total.toLocaleString()} đ
+          </div>
+
+          <button
+            onClick={() => checkout("Tiền mặt")}
+            className="w-full mt-3 bg-blue-600 text-white py-3 rounded text-lg"
+          >
+            Thanh toán tiền mặt
+          </button>
+
+          <button
+            onClick={() => checkout("Chuyển khoản")}
+            className="w-full mt-2 bg-purple-600 text-white py-3 rounded text-lg"
+          >
+            Chuyển khoản
+          </button>
         </div>
-      )}
-    </div>
+      </div>
+
+      {/* ===== DOANH THU ===== */}
+      <div className="mt-8 bg-white p-6 rounded shadow">
+        <h2 className="text-2xl font-bold mb-4">📊 Lịch sử đơn</h2>
+
+        {orders.length === 0 && (
+          <p className="text-gray-500">Chưa có đơn</p>
+        )}
+
+        {orders.map((o) => (
+          <div
+            key={o.id}
+            className="flex justify-between border-b py-2"
+          >
+            <span>{o.time}</span>
+            <strong>{o.total.toLocaleString()} đ</strong>
+          </div>
+        ))}
+
+        <div className="mt-4 text-xl font-bold">
+          Doanh thu:{" "}
+          {orders
+            .reduce((s, o) => s + o.total, 0)
+            .toLocaleString()}{" "}
+          đ
+        </div>
+      </div>
+    </main>
   );
 }
